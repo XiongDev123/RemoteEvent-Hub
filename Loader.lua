@@ -60,7 +60,7 @@ local function CreateUI()
     local Title = Instance.new("TextLabel")
     Title.Size = UDim2.new(1, 0, 0, 40)
     Title.BackgroundTransparency = 1
-    Title.Text = "MANUS LOADER PRO"
+    Title.Text = "RemoteEvent Hub"
     Title.TextColor3 = THEME.Text
     Title.TextSize = 20
     Title.Font = Enum.Font.GothamBold
