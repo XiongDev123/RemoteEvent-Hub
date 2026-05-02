@@ -1,6 +1,6 @@
 --[[
-    Roblox Multi-Game Remote Loader
-    功能：偵測 PlaceId 並從 GitHub 載入對應的腳本
+    Roblox Advanced Remote Loader (With Error Handling)
+    功能：偵測 PlaceId、遠端載入、錯誤分類提示、自動重試機制
 ]]
 
 local HttpService = game:GetService("HttpService")
@@ -8,40 +8,44 @@ local TweenService = game:GetService("TweenService")
 local CoreGui = game:GetService("CoreGui")
 local PlaceId = game.PlaceId
 
--- 配置區域：在此定義不同遊戲對應的腳本連結
+-- 配置區域
 local SCRIPT_CONFIG = {
-    -- 格式：[PlaceId] = {Name = "顯示名稱", Url = "GitHub Raw 連結"}
-    [18408132742] = {
-        Name = "Money Clicker Incremental",
-        Url = "https://raw.githubusercontent.com/XiongDev123/RemoteEvent-Hub/main/Games/MoneyClickerIncremental.lua"
-    }
+    [18408132742] = { Name = "Blox Fruits", Url = "https://raw.githubusercontent.com/XiongDev123/RemoteEvent-Hub/refs/heads/main/Games/MoneyClickerIncremental.lua" },
+    ["Default"] = { Name = "Universal Script", Url = "https://raw.githubusercontent.com/user/repo/main/universal.lua" }
 }
 
-local AccentColor = Color3.fromRGB(0, 255, 127) -- 介面主題色
+local THEME = {
+    Background = Color3.fromRGB(20, 20, 20),
+    Accent = Color3.fromRGB(0, 255, 150),
+    Error = Color3.fromRGB(255, 70, 70),
+    Text = Color3.fromRGB(255, 255, 255)
+}
+
+local MAX_RETRIES = 3 -- 最大重試次數
 
 -- 建立載入介面
 local function CreateLoaderUI()
     local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = "ManusMultiLoader"
+    ScreenGui.Name = "ManusAdvancedLoader"
     ScreenGui.Parent = CoreGui
     ScreenGui.ResetOnSpawn = false
 
     local MainFrame = Instance.new("Frame")
     MainFrame.Name = "MainFrame"
-    MainFrame.Size = UDim2.new(0, 280, 0, 90)
-    MainFrame.Position = UDim2.new(0.5, -140, 0.5, -45)
-    MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    MainFrame.Size = UDim2.new(0, 300, 0, 100)
+    MainFrame.Position = UDim2.new(0.5, -150, 0.5, -50)
+    MainFrame.BackgroundColor3 = THEME.Background
     MainFrame.BorderSizePixel = 0
     MainFrame.BackgroundTransparency = 1
     MainFrame.Parent = ScreenGui
 
     local UICorner = Instance.new("UICorner")
-    UICorner.CornerRadius = UDim.new(0, 12)
+    UICorner.CornerRadius = UDim.new(0, 10)
     UICorner.Parent = MainFrame
 
     local UIStroke = Instance.new("UIStroke")
-    UIStroke.Color = AccentColor
-    UIStroke.Thickness = 1.5
+    UIStroke.Color = THEME.Accent
+    UIStroke.Thickness = 2
     UIStroke.Transparency = 1
     UIStroke.Parent = MainFrame
 
@@ -49,9 +53,9 @@ local function CreateLoaderUI()
     Title.Name = "Title"
     Title.Size = UDim2.new(1, 0, 0.5, 0)
     Title.BackgroundTransparency = 1
-    Title.Text = "正在辨識遊戲..."
-    Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Title.TextSize = 16
+    Title.Text = "初始化中..."
+    Title.TextColor3 = THEME.Text
+    Title.TextSize = 18
     Title.Font = Enum.Font.GothamBold
     Title.TextTransparency = 1
     Title.Parent = MainFrame
@@ -61,65 +65,94 @@ local function CreateLoaderUI()
     Status.Size = UDim2.new(1, 0, 0.4, 0)
     Status.Position = UDim2.new(0, 0, 0.5, 0)
     Status.BackgroundTransparency = 1
-    Status.Text = "Place ID: " .. tostring(PlaceId)
-    Status.TextColor3 = Color3.fromRGB(200, 200, 200)
-    Status.TextSize = 13
+    Status.Text = "準備就緒"
+    Status.TextColor3 = THEME.Accent
+    Status.TextSize = 14
     Status.Font = Enum.Font.Gotham
     Status.TextTransparency = 1
     Status.Parent = MainFrame
 
-    -- 淡入動畫
+    -- 動態效果
     TweenService:Create(MainFrame, TweenInfo.new(0.5), {BackgroundTransparency = 0}):Play()
     TweenService:Create(UIStroke, TweenInfo.new(0.5), {Transparency = 0}):Play()
     TweenService:Create(Title, TweenInfo.new(0.5), {TextTransparency = 0}):Play()
     TweenService:Create(Status, TweenInfo.new(0.5), {TextTransparency = 0}):Play()
 
-    return ScreenGui, Title, Status
+    return ScreenGui, MainFrame, Title, Status, UIStroke
 end
 
--- 執行遠端載入邏輯
-local function StartLoading(titleLabel, statusLabel)
-    local config = SCRIPT_CONFIG[PlaceId] or SCRIPT_CONFIG["Default"]
+-- 錯誤處理顯示
+local function ShowError(title, status, titleLabel, statusLabel, stroke)
+    titleLabel.Text = title
+    statusLabel.Text = status
+    statusLabel.TextColor3 = THEME.Error
+    TweenService:Create(stroke, TweenInfo.new(0.3), {Color = THEME.Error}):Play()
+end
 
-    if config then
-        titleLabel.Text = "載入中: " .. config.Name
-        statusLabel.Text = "正在從 GitHub 獲取數據..."
+-- 核心載入邏輯
+local function LoadScript(titleLabel, statusLabel, stroke)
+    local config = SCRIPT_CONFIG[PlaceId] or SCRIPT_CONFIG["Default"]
+    
+    if not config then
+        ShowError("載入失敗", "找不到對應的 Place ID 配置", titleLabel, statusLabel, stroke)
+        return false
+    end
+
+    titleLabel.Text = "載入: " .. config.Name
+    
+    local attempt = 0
+    local success, result
+    
+    while attempt < MAX_RETRIES do
+        attempt = attempt + 1
+        statusLabel.Text = string.format("嘗試連線 GitHub... (%d/%d)", attempt, MAX_RETRIES)
         
-        local success, result = pcall(function()
+        success, result = pcall(function()
             return game:HttpGet(config.Url)
         end)
-
+        
         if success then
-            statusLabel.Text = "獲取成功，正在初始化..."
-            task.wait(0.8)
-            
-            local loadFunc, err = loadstring(result)
-            if loadFunc then
-                task.spawn(loadFunc)
-                statusLabel.Text = "腳本已啟動！"
-            else
-                statusLabel.Text = "代碼解析錯誤"
-                warn("Loader Error: " .. tostring(err))
+            -- 檢查是否為 404 或無效內容 (GitHub Raw 在 404 時會回傳 "404: Not Found")
+            if result == "404: Not Found" then
+                ShowError("404 錯誤", "GitHub 找不到該檔案路徑", titleLabel, statusLabel, stroke)
+                return false
             end
+            break
         else
-            statusLabel.Text = "連線失敗，請檢查網路"
+            task.wait(1.5) -- 失敗後等待再重試
         end
-    else
-        titleLabel.Text = "不支援此遊戲"
-        statusLabel.Text = "未找到對應的 Place ID 配置"
-        statusLabel.TextColor3 = Color3.fromRGB(255, 80, 80)
     end
+
+    if not success then
+        ShowError("網路錯誤", "無法連接至 GitHub，請檢查網路", titleLabel, statusLabel, stroke)
+        return false
+    end
+
+    statusLabel.Text = "正在解析代碼..."
+    local loadFunc, err = loadstring(result)
+    
+    if not loadFunc then
+        ShowError("語法錯誤", "遠端腳本代碼損壞", titleLabel, statusLabel, stroke)
+        warn("Lua Error: " .. tostring(err))
+        return false
+    end
+
+    statusLabel.Text = "啟動成功！"
+    task.spawn(loadFunc)
+    return true
 end
 
--- 主程序
-local ui, title, status = CreateLoaderUI()
+-- 執行
+local ui, frame, title, status, stroke = CreateLoaderUI()
 task.wait(0.6)
-StartLoading(title, status)
 
--- 結束動畫與清理
-task.wait(2)
-TweenService:Create(ui.MainFrame, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
-TweenService:Create(ui.MainFrame.UIStroke, TweenInfo.new(0.5), {Transparency = 1}):Play()
+local isSuccess = LoadScript(title, status, stroke)
+
+-- 結束處理
+task.wait(isSuccess and 1.5 or 5) -- 成功則快閃，失敗則留 5 秒讓玩家看錯誤訊息
+
+TweenService:Create(frame, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
+TweenService:Create(stroke, TweenInfo.new(0.5), {Transparency = 1}):Play()
 TweenService:Create(title, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
 TweenService:Create(status, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
 
