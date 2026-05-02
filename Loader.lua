@@ -10,7 +10,7 @@ local PlaceId = game.PlaceId
 
 -- 配置區域
 local SCRIPT_CONFIG = {
-    [18408132742] = { Name = "Blox Fruits", Url = "https://raw.githubusercontent.com/XiongDev123/RemoteEvent-Hub/refs/heads/main/Games/MoneyClickerIncremental.lua" },
+    [18408132742] = { Name = "Money Clicker Incremental", Url = "https://raw.githubusercontent.com/XiongDev123/RemoteEvent-Hub/refs/heads/main/Games/MoneyClickerIncremental.lua" },
     ["Default"] = { Name = "Universal Script", Url = "https://raw.githubusercontent.com/user/repo/main/universal.lua" }
 }
 
